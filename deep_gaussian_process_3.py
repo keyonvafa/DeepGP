@@ -78,7 +78,7 @@ def build_deep_gp(input_dimension, hidden_dimension, n_layers, covariance_functi
         layer_params = np.array_split(all_params[:sum(num_params_each_layer)], n_layers)
         pseudo_params = all_params[sum(num_params_each_layer):]
         x0, y0 = np.array_split(pseudo_params, 2)
-        x0 = np.array_split(x0, n_layers)
+        x0 = x0.reshape((n_layers,num_pseudo_params,input_dimension))
         y0 = np.array_split(y0, n_layers)
         return layer_params, x0, y0
 
@@ -90,7 +90,7 @@ def build_deep_gp(input_dimension, hidden_dimension, n_layers, covariance_functi
 
     def sample_from_mvn(mu, sigma): # make sure we return 2d, also make sure data is 2d
         rs = npr.RandomState(0)
-        return np.dot(np.linalg.cholesky(sigma+1e-6*np.eye(len(sigma))*np.max(np.diag(sigma))),rs.randn(len(sigma)))+mu if random == 1 else mu
+        return np.atleast_2d(np.dot(np.linalg.cholesky(sigma+1e-6*np.eye(len(sigma))*np.max(np.diag(sigma))),rs.randn(len(sigma)))+mu if random == 1 else mu).T
 
     def sample_mean_cov_from_deep_gp(all_params, X, with_noise = False):
         predict = predict_funcs_with_noise if with_noise else predict_layer_funcs
@@ -98,8 +98,9 @@ def build_deep_gp(input_dimension, hidden_dimension, n_layers, covariance_functi
         layer_params, x0, y0 = unpack_all_params(all_params)
         n_layers = len(x0)
         for layer in xrange(n_layers):
-            layer_mean, layer_cov = predict[layer](layer_params[layer],np.atleast_2d(x0[layer]).T, y0[layer],X_star)
-            X_star = np.atleast_2d(sample_from_mvn(layer_mean, layer_cov)).T
+            #layer_mean, layer_cov = predict[layer](layer_params[layer],np.atleast_2d(x0[layer]).T, y0[layer],X_star)
+            layer_mean, layer_cov = predict[layer](layer_params[layer],x0[layer], y0[layer],X_star)
+            X_star = sample_from_mvn(layer_mean, layer_cov)
         return layer_mean,layer_cov
 
     def squared_error(all_params):
@@ -113,13 +114,13 @@ def build_deep_gp(input_dimension, hidden_dimension, n_layers, covariance_functi
         for layer in xrange(n_layers):
             #import pdb; pdb.set_trace()
             mean, cov_params, noise_scale = unpack_kernel_params(layer_params[layer])
-            cov_y_y = covariance_function(cov_params, np.atleast_2d(x0[layer]).T, np.atleast_2d(x0[layer]).T) + noise_scale * np.eye(len(y0[layer]))
-            log_prior += mvn.logpdf(y0[layer],np.ones(len(cov_y_y))*mean,cov_y_y+np.eye(len(cov_y_y))*1e-6*np.max(np.diag(cov_y_y)))
+            cov_y_y = covariance_function(cov_params, x0[layer], x0[layer]) + noise_scale * np.eye(len(y0[layer]))
+            #log_prior += mvn.logpdf(y0[layer],np.ones(len(cov_y_y))*mean,cov_y_y+np.eye(len(cov_y_y))*1e-6*np.max(np.diag(cov_y_y)))
+            log_prior += mvn.logpdf(y0[layer],np.ones(len(cov_y_y))*mean,cov_y_y+np.eye(len(cov_y_y))*10)
         return log_prior
 
     def log_likelihood(all_params):  # implement mini batches later?
         n_samples = 1
-        layer_params, x0, y0 = unpack_all_params(all_params)
         samples = [sample_mean_cov_from_deep_gp(all_params, X, True) for i in xrange(n_samples)]
         return logsumexp(np.array([mvn.logpdf(y,mean,var+1e-6*np.eye(len(var))*np.max(np.diag(var))) for mean,var in samples])) - np.log(n_samples) \
             + evaluate_prior(all_params)
@@ -152,7 +153,7 @@ if __name__ == '__main__':
     n_data = 20
     input_dimension = 1
     hidden_dimension = 1
-    num_pseudo_params = 10
+    num_pseudo_params =10
     X, y = build_step_function_dataset(D=input_dimension, n_data=20)
     #X, y = build_parabola(D = input_dimension, n_data = 20)
 
@@ -187,7 +188,7 @@ if __name__ == '__main__':
         sampled_funcs = np.array([rs.multivariate_normal(mean, cov*(random)) for mean,cov in sampled_means_and_covs])
         ax.plot(plot_xs,sampled_funcs.T)
         ax.plot(X, y, 'kx')
-        ax.set_ylim([-1.5,1.5])
+        #ax.set_ylim([-1.5,1.5])
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title("Full GP, X to Y")
@@ -215,6 +216,7 @@ if __name__ == '__main__':
     def callback(params):
         print("Log likelihood {}, Squared Error {}".format(-objective(params),squared_error(params)))
         layer_params, x0, y0 = unpack_all_params(params)
+        print("Lengthscale {},".format(np.exp(layer_params[0][3])))
 
         # Show posterior marginals.
         plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
@@ -222,11 +224,11 @@ if __name__ == '__main__':
         if n_layers == 1:
             ax_end_to_end.plot(x0[0],y0[0], 'ro')
         else:
-            hidden_mean, hidden_cov = predict_layer_funcs[0](layer_params[0], np.atleast_2d(x0[0]).T, y0[0], plot_xs)
+            hidden_mean, hidden_cov = predict_layer_funcs[0](layer_params[0], x0[0], y0[0], plot_xs)
             plot_gp(ax_x_to_h, x0[0], y0[0], hidden_mean, hidden_cov, plot_xs)
             ax_x_to_h.set_title("X to hiddens, with inducing points")
 
-            y_mean, y_cov = predict_layer_funcs[1](layer_params[1], np.atleast_2d(x0[1]).T, y0[1], plot_xs)
+            y_mean, y_cov = predict_layer_funcs[1](layer_params[1], x0[1], y0[1], plot_xs)
             plot_gp(ax_h_to_y, x0[1], y0[1], y_mean, y_cov, plot_xs)
             ax_h_to_y.set_title("hiddens to layer 2, with inducing points")
 
@@ -242,12 +244,13 @@ if __name__ == '__main__':
         layer_params[0][3] = np.log(np.median(dists))
 
         # Initialize the pseudo inputs for the first layer by sampling from the data, the pseudo outputs equal to the inputs
-        x0[0] = np.ndarray.flatten(np.array(X)[rs.choice(len(X), num_pseudo_params, replace=False),:])
-        y0[0] = x0[0]
+        #x0[0] = np.ndarray.flatten(np.array(X)[rs.choice(len(X), num_pseudo_params, replace=False),:])
+        x0[0] = np.array(X)[rs.choice(len(X), num_pseudo_params, replace=False),:]
+        y0[0] = np.ndarray.flatten(x0[0])
         
         # For every other layer, set the inducing outputs to the inducing inputs (which are sampled from N(0,.01)) and lengthscale large 
         for layer in xrange(1,n_layers):
-            y0[layer] = x0[layer]
+            y0[layer] = np.ndarray.flatten(x0[layer])
             layer_params[layer][3] = np.log(1)
 
         return pack_all_params(layer_params, x0, y0)
