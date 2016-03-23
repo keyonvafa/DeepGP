@@ -46,6 +46,9 @@ def build_single_gp(cov_func, num_cov_params, num_pseudo_params, input_dimension
         pseudo_params = params[2+num_cov_params:]
         x0, y0 = np.split(pseudo_params,[num_pseudo_params*input_dimension])
         x0     = x0.reshape((num_pseudo_params,input_dimension))
+        gp_details = {'mean': mean, 'noise_scale': noise_scale, 'cov_params': cov_params, 'x0': x0, 'y0': y0}
+        #x0 = X
+        #y0 = y
         return mean, cov_params, noise_scale, x0, y0
 
     def pack_gp_params(mean, cov_params, noise_scale, x0, y0):
@@ -53,7 +56,7 @@ def build_single_gp(cov_func, num_cov_params, num_pseudo_params, input_dimension
         params = np.concatenate([params,cov_params])
         params = np.concatenate([params,np.ndarray.flatten(np.array(x0))])
         params = np.concatenate([params,np.ndarray.flatten(np.array(y0))])
-        return params#np.append(mean, noise_scale, cov_params, np.ndarray.flatten(np.array(x0)), np.ndarray.flatten(np.array(y0)))
+        return params
 
     def predict(params, xstar):
         """Returns the predictive mean and covariance at locations xstar,
@@ -99,8 +102,6 @@ def build_single_layer(input_dimension, output_dimension, num_pseudo_params, cov
         outputs = [sample_from_mvn(mean,cov) for mean,cov in samples]
         return np.array(outputs).T
 
-    # Implement Prior regularization
-
     return total_params_layer, sample_mean_cov_from_layer, sample_values_from_layer, predict_layer_funcs, unpack_gp_params_layer, unpack_layer_params, pack_gp_params_layer
 
 def build_deep_gp(dimensions, covariance_function, num_pseudo_params, random):
@@ -117,18 +118,31 @@ def build_deep_gp(dimensions, covariance_function, num_pseudo_params, random):
         xtilde = xstar 
         all_layer_params = unpack_all_params(all_params)
         for layer in xrange(len(dimensions)-2):
-            #layer_params = all_params[sum(num_params_each_layer[:layer]):sum(num_params_each_layer[:layer+1])]
             layer_params = all_layer_params[layer]
             xtilde = sample_value_funcs[layer](layer_params, xtilde, with_noise)
         final_layer = len(dimensions)-2
         final_layer_params = all_layer_params[final_layer]
-        #final_layer_params = all_params[sum(num_params_each_layer[:final_layer]):sum(num_params_each_layer[:final_layer+1])]
-        final_mean, final_cov = sample_mean_cov_funcs[final_layer](final_layer_params, xtilde, with_noise)[0] # index into 0 because final layer has one dimension
+        final_mean, final_cov = sample_mean_cov_funcs[final_layer](final_layer_params, xtilde, with_noise)[0] # index into 0 because final layer has one unit
+        #print("Function Means",final_mean)
         return final_mean, final_cov  
+
+    def evaluate_prior(all_params): # clean up code so we don't compute matrices twice
+        all_layer_params = unpack_all_params(all_params)
+        log_prior = 0
+        for layer in xrange(n_layers):
+            layer_params = all_layer_params[layer]
+            layer_gp_params = unpack_layer_params[layer](layer_params)
+            for dim in xrange(dimensions[layer+1]):
+                gp_params = layer_gp_params[dim]
+                mean, cov_params, noise_scale, x0, y0 = unpack_gp_params_all[layer][dim](gp_params)
+                cov_y_y = covariance_function(cov_params,x0,x0) + noise_scale * np.eye(len(y0))
+                log_prior += mvn.logpdf(y0,np.ones(len(cov_y_y))*mean,cov_y_y+np.eye(len(cov_y_y))*10)
+        return log_prior
 
     def log_likelihood(all_params):
         samples = [sample_mean_cov_from_deep_gp(all_params, X, True) for i in xrange(n_samples)]
-        return logsumexp(np.array([mvn.logpdf(y,mean,var+1e-6*np.eye(len(var))*np.max(np.diag(var))) for mean,var in samples])) - np.log(n_samples)
+        return logsumexp(np.array([mvn.logpdf(y,mean,var+1e-6*np.eye(len(var))*np.max(np.diag(var))) for mean,var in samples])) - np.log(n_samples) \
+            + evaluate_prior(all_params)
 
     def squared_error(all_params):
         samples = np.array([sample_mean_cov_from_deep_gp(all_params, X, False)[0] for i in xrange(n_samples)])
@@ -141,24 +155,58 @@ if __name__ == '__main__':
 
     random = 0
     n_samples = 1
-    dimensions = [1,2,2,1] # Architecture of the GP. Last layer should always be 1
+    dimensions = [2,1] # Architecture of the GP. Last layer should always be 1
 
     n_data = 20
     input_dimension = dimensions[0]
     n_layers = len(dimensions)-1
-    num_pseudo_params = 10
-    X, y = build_step_function_dataset(D=input_dimension, n_data=20)
+    num_pseudo_params = 50
+    #X, y = build_step_function_dataset(D=input_dimension, n_data=20)
+    X, y = build_checker_dataset(n_data=16)
 
     total_num_params, log_likelihood, sample_mean_cov_from_deep_gp, predict_layer_funcs, squared_error, unpack_gp_params_all, unpack_layer_params, unpack_all_params, \
         pack_gp_params_all = build_deep_gp(dimensions, rbf_covariance, num_pseudo_params, random)
 
     # Set up figure.
-    fig = plt.figure(figsize=(12,8), facecolor='white')
-    ax_first = fig.add_subplot(411, frameon=False)
-    ax_end_to_end = fig.add_subplot(412, frameon=False)
-    ax_x_to_h = fig.add_subplot(413, frameon=False)
-    ax_h_to_y = fig.add_subplot(414, frameon=False)
-    plt.show(block=False)
+    if dimensions[0] == 1:
+        fig = plt.figure(figsize=(12,8), facecolor='white')
+        ax_first = fig.add_subplot(411, frameon=False)
+        ax_end_to_end = fig.add_subplot(412, frameon=False)
+        ax_x_to_h = fig.add_subplot(413, frameon=False)
+        ax_h_to_y = fig.add_subplot(414, frameon=False)
+        plt.show(block=False)
+    else:
+        fig = plt.figure(figsize=(12,8), facecolor='white')
+        ax = fig.add_subplot(111, frameon=False)
+        plt.show(block=False)
+
+
+    def plot_deep_gp_2d(ax,params,plot_xs):
+        ax.cla()
+        rs = npr.RandomState(0)
+
+        sampled_means_and_covs = [sample_mean_cov_from_deep_gp(params, plot_xs) for i in xrange(n_samples)]
+        sampled_means, sampled_covs = zip(*sampled_means_and_covs)
+        avg_pred_mean = np.mean(sampled_means, axis = 0)
+        avg_pred_cov = np.mean(sampled_covs, axis = 0)
+        #print("X*",avg_pred_mean)
+        #rint("X*",plot_xs[0:4])
+
+        #sampled_means_and_covs_orig = [sample_mean_cov_from_deep_gp(params, X) for i in xrange(n_samples)]
+        #sampled_means_orig, sampled_covs_orig = zip(*sampled_means_and_covs_orig)
+        #avg_pred_mean_orig = np.mean(sampled_means_orig, axis = 0)
+        #print("Orignal Xs",avg_pred_mean_orig)
+
+        X0 = params[5:5+num_pseudo_params*2].reshape(num_pseudo_params,2)
+        y0 = params[5+num_pseudo_params*2:5+num_pseudo_params*3]
+        #ax.scatter(X0[:,0],X0[:,1],c = y0)
+
+        avg_pred_mean = avg_pred_mean.reshape(40,40)
+        ax.contourf(np.linspace(-1,1,40),np.linspace(-1,1,40), avg_pred_mean)
+        ax.scatter(X[:,0],X[:,1],c=y)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title("Full Deep GP")
 
 
     def plot_deep_gp(ax, params, plot_xs):
@@ -208,19 +256,39 @@ if __name__ == '__main__':
         print("Log likelihood {}, Squared Error {}".format(-objective(params),squared_error(params)))
         
         # Show posterior marginals.
-        plot_deep_gp(ax_end_to_end, params, plot_xs)
-        if dimensions == [1,1]:
-            ax_end_to_end.plot(params[4:14],params[14:24], 'ro')
-        elif dimensions == [1,1,1]:
-            hidden_mean, hidden_cov = predict_layer_funcs[0][0](params[0:24], plot_xs)
-            plot_single_gp(ax_x_to_h, params[4:14], params[14:24], hidden_mean, hidden_cov, plot_xs)
-            ax_x_to_h.set_title("Inputs to hiddens, inducing points in red")
+        if dimensions[0] == 1:
+            plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
+            plot_deep_gp(ax_first, init_params, plot_xs)
+            ax_first.set_title("Initial full predictions")
+            plot_deep_gp(ax_end_to_end, params, plot_xs)
+            if dimensions == [1,1]:
+                ax_end_to_end.plot(params[4:14],params[14:24], 'ro')
+            elif dimensions == [1,1,1]:
+                hidden_mean, hidden_cov = predict_layer_funcs[0][0](params[0:24], plot_xs)
+                plot_single_gp(ax_x_to_h, params[4:14], params[14:24], hidden_mean, hidden_cov, plot_xs)
+                ax_x_to_h.set_title("Inputs to hiddens, inducing points in red")
 
-            y_mean, y_cov = predict_layer_funcs[0][0](params[24:48], plot_xs)
-            plot_single_gp(ax_h_to_y, params[28:38], params[38:48], y_mean, y_cov, plot_xs)
-            ax_h_to_y.set_title("Hiddens to outputs, inducing points in red")
-        plt.draw()
-        plt.pause(1.0/60.0)
+                y_mean, y_cov = predict_layer_funcs[0][0](params[24:48], plot_xs)
+                plot_single_gp(ax_h_to_y, params[28:38], params[38:48], y_mean, y_cov, plot_xs)
+                ax_h_to_y.set_title("Hiddens to outputs, inducing points in red")
+            plt.draw()
+            plt.pause(1.0/60.0)
+        elif dimensions[0] == 2:
+            plot_xs = np.array([np.array([a,b]) for a in np.linspace(-1,1,40) for b in np.linspace(-1,1,40)])
+            plot_deep_gp_2d(ax, params, plot_xs)
+
+            #all_layer_params = unpack_all_params(init_params)
+            #for layer in xrange(n_layers):
+            #    layer_params = all_layer_params[layer]
+            #    layer_gp_params = unpack_layer_params[layer](layer_params)
+            #    for dim in xrange(dimensions[layer+1]):
+            #        gp_params = layer_gp_params[dim]
+            #        mean, cov_params, noise_scale, x0, y0 = unpack_gp_params_all[layer][dim](gp_params)
+            #        lengthscales = cov_params[1:]
+            ##ax.scatter(X[:,0],x0[:,0])
+            plt.draw()
+            plt.pause(1.0/60.0)
+
 
     rs = npr.RandomState(1234)
     init_params = .1 * rs.randn(total_num_params)
@@ -258,10 +326,6 @@ if __name__ == '__main__':
 
     print("Optimizing covariance parameters...")
     objective = lambda params: -log_likelihood(params)
-
-    plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
-    plot_deep_gp(ax_first, init_params, plot_xs)
-    ax_first.set_title("Initial full predictions")
 
     params = minimize(value_and_grad(objective), init_params, jac=True,
                           method='BFGS', callback=callback)

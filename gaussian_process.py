@@ -9,12 +9,21 @@ import autograd.scipy.stats.multivariate_normal as mvn
 from autograd import value_and_grad
 from scipy.optimize import minimize
 
-def build_step_function_dataset(D=1, n_data=40, noise_std=0.1):
+def build_step_function_dataset(D=1, n_data=500, noise_std=0.1):
     rs = npr.RandomState(0)
     inputs  = np.linspace(-2, 2, num=n_data)
     targets = np.sign(inputs) + rs.randn(n_data) * noise_std
     inputs  = inputs.reshape((len(inputs), D))
     return inputs, targets
+
+def build_sigmoid_dataset():
+    def sigmoid(x):
+        return 1.0 / (1 + np.exp(-x))
+    n_data = 500
+    X = np.linspace(-6, 6, n_data)
+    y = sigmoid(X) + .3*np.random.randn(len(X))
+    X = X.reshape((len(X),1))
+    return X,y
 
 def make_gp_funs(cov_func, num_cov_params):
     """Functions that perform Gaussian process regression.
@@ -35,7 +44,7 @@ def make_gp_funs(cov_func, num_cov_params):
         cov_y_y = cov_func(cov_params, x, x) + noise_scale * np.eye(len(y))
         pred_mean = mean +   np.dot(solve(cov_y_y, cov_y_f).T, y - mean)
         pred_cov = cov_f_f - np.dot(solve(cov_y_y, cov_y_f).T, cov_y_f)
-        return pred_mean, pred_cov
+        return pred_mean, pred_cov 
 
     def log_marginal_likelihood(params, x, y):
         mean, cov_params, noise_scale = unpack_kernel_params(params)
@@ -73,7 +82,8 @@ if __name__ == '__main__':
         make_gp_funs(rbf_covariance, num_cov_params=D + 1)
 
     #X, y = build_toy_dataset(D=D)
-    X, y = build_step_function_dataset()
+    #X, y = build_step_function_dataset()
+    X,y = build_sigmoid_dataset()
     objective = lambda params: -log_marginal_likelihood(params, X, y)
 
     # Set up figure.
