@@ -34,7 +34,7 @@ def build_step_function_dataset(D=1, n_data=40, noise_std=0.1):
     inputs  = inputs.reshape((len(inputs), D))
     return inputs, targets
 
-def initialize(deep_map, X):
+def initialize(deep_map, X,num_pseudo_params):
     smart_map = {}
     for layer,layer_map in deep_map.iteritems():
         smart_map[layer] = {}
@@ -202,7 +202,7 @@ def build_deep_gp(dimensions, covariance_function, num_pseudo_params, random):
                 ###log_prior += mvn.logpdf(gp_map['y0'],np.ones(len(cov_y_y))*gp_map['mean'],np.diag(np.diag(cov_y_y))*10)
         return log_prior
 
-    def log_likelihood(all_params):
+    def log_likelihood(all_params, X, y, n_samples):
         rs = npr.RandomState(0)
         samples = [sample_mean_cov_from_deep_gp(all_params, X, True, rs, FITC = True) for i in xrange(n_samples)]
         return logsumexp(np.array([mvn.logpdf(y,mean,var) for mean,var in samples])) - np.log(n_samples) \
@@ -210,7 +210,7 @@ def build_deep_gp(dimensions, covariance_function, num_pseudo_params, random):
         #return logsumexp(np.array([mvn.logpdf(y,mean,np.diag(np.diag(var))) for mean,var in samples])) - np.log(n_samples) \
         #    + evaluate_prior(all_params)
 
-    def squared_error(all_params):
+    def squared_error(all_params, X, y, n_samples):
         rs = npr.RandomState(0)
         samples = np.array([sample_mean_cov_from_deep_gp(all_params, X, True, rs, FITC = True)[0] for i in xrange(n_samples)])
         return np.mean((y - np.mean(samples,axis = 0)) ** 2)
@@ -222,7 +222,7 @@ if __name__ == '__main__':
     random = 1
     n_samples = 10
     n_samples_to_plot = 10
-    dimensions = [1,1] # Architecture of the GP. Last layer should always be 1
+    dimensions = [1,1,1] # Architecture of the GP. Last layer should always be 1
 
     n_data = 20
     input_dimension = dimensions[0]
@@ -338,7 +338,7 @@ if __name__ == '__main__':
         ax.set_yticks([])
 
     def callback(params):
-        print("Log likelihood {}, Squared Error {}".format(-objective(params),squared_error(params)))
+        print("Log likelihood {}, Squared Error {}".format(-objective(params),squared_error(params,X,y,n_samples)))
         
         # Show posterior marginals.
         if dimensions[0] == 1:
@@ -379,32 +379,60 @@ if __name__ == '__main__':
     init_params = .1 * npr.randn(total_num_params)
     deep_map = create_deep_map(init_params)
 
-    init_params = initialize(deep_map,X)
+    init_params = initialize(deep_map,X,num_pseudo_params)
 
     print("Optimizing covariance parameters...")
-    objective = lambda params: -log_likelihood(params)
+    objective = lambda params: -log_likelihood(params,X,y,n_samples)
 
     params = minimize(value_and_grad(objective), init_params, jac=True,
-                          method='BFGS', callback=callback,options={'maxiter':150})
+                          method='BFGS', callback=callback,options={'maxiter':500})
 
-    ax_end_to_end.cla()
-    n_samples_to_plot = 2000
+    #ax_end_to_end.cla()
+    #n_samples_to_plot = 2000
     rs = npr.RandomState(0)
-    plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
-    sampled_means_and_covs = [sample_mean_cov_from_deep_gp(params['x'],plot_xs,with_noise=False,FITC=False) for i in xrange(n_samples_to_plot)]
-    sampled_funcs = np.array([rs.multivariate_normal(mean, cov*(random)) for mean,cov in sampled_means_and_covs])
+    #plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
+    #sampled_means_and_covs = [sample_mean_cov_from_deep_gp(params['x'],plot_xs,with_noise=False,FITC=False) for i in xrange(n_samples_to_plot)]
+    #sampled_funcs = np.array([rs.multivariate_normal(mean, cov+1e-6*np.eye(len(cov))) for mean,cov in sampled_means_and_covs])
+    
     #x_samples = np.tile(np.ndarray.flatten(plot_xs),n_samples_to_plot)
     #y_samples = np.ndarray.flatten(np.array(sampled_funcs))
     #ax_end_to_end.hexbin(x_samples,y_samples,bins=None,gridsize=70)
     #ax_end_to_end.axis([x_samples.min(), x_samples.max(), y_samples.min(), y_samples.max()])
     #ax_end_to_end.plot(X,y,'ro')
 
-    for sampled_func in sampled_funcs:
-        ax_end_to_end.plot(plot_xs,np.array(sampled_func),linewidth=.01,c='black')#,s=.0001)#,c='blue') 
-    ax_end_to_end.scatter(X,y)
+    #for sampled_func in sampled_funcs:
+    #    ax_end_to_end.plot(plot_xs,np.array(sampled_func),linewidth=.01,c='black')#,s=.0001)#,c='blue') 
+    #ax_end_to_end.scatter(X,y)
 
     #for sampled_func in sampled_funcs:
     #    ax_end_to_end.scatter(plot_xs,sampled_func,s=.0001,c='blue')
     #ax_end_to_end.scatter(X,y)
+
+    ### NEW
+
+    n_samples_to_plot = 2000
+    plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
+    sampled_means_and_covs = [sample_mean_cov_from_deep_gp(params['x'],plot_xs,with_noise=False,FITC=False) for i in xrange(n_samples_to_plot)]
+    sampled_funcs = np.array([rs.multivariate_normal(mean, cov*(random)+1e-6*np.eye(len(mean))) for mean,cov in sampled_means_and_covs])
+
+    fig = plt.figure(figsize=(10,8), facecolor='white')
+    ax_three_layer = fig.add_subplot(111, frameon=False)
+    plt.show(block=False) 
+
+    if dimensions == [1,1,1,1]:
+        ax = ax_three_layer
+        title = "3-Layer Deep GP"
+    else:
+        ax = ax_three_layer    
+        title = "3-Layer Deep GP"
+    for sampled_func in sampled_funcs:
+        ax.plot(plot_xs,np.array(sampled_func),linewidth=.01,c='black')
+    ax.plot(X,y,'rx')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(title, fontsize = 20)
+    ax.set_xlabel(r'$x$',fontsize = 20)
+    ax.set_ylabel(r'$f(x)$',fontsize = 20)
+    plt.savefig('step_3_layers_preds.png', format='png', bbox_inches='tight',dpi=200)
 
     plt.pause(80.0)
