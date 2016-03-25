@@ -140,8 +140,15 @@ def build_single_layer(input_dimension, output_dimension, num_pseudo_params, cov
             layer_map[unit] = create_gp_map[unit](gp_params[unit])
         return layer_map
 
-    def sample_from_mvn(mu, sigma,rs = npr.RandomState(0)):
-        return np.dot(np.linalg.cholesky(sigma+1e-6*np.eye(len(sigma))),rs.randn(len(sigma)))+mu if random == 1 else mu
+    def sample_from_mvn(mu, sigma,rs = npr.RandomState(0),FITC = False):
+        if FITC:
+            #if not np.allclose(sigma, np.diag(np.diag(sigma))):
+            #    print("NOT DIAGONAL")
+            #    return np.dot(np.linalg.cholesky(sigma+1e-6*np.eye(len(sigma))),rs.randn(len(sigma)))+mu if random == 1 else mu
+            return np.dot(np.sqrt(sigma+1e-6),rs.randn(len(sigma)))+mu if random == 1 else mu
+            #return np.dot(np.linalg.cholesky(sigma+1e-6*np.eye(len(sigma))),rs.randn(len(sigma)))+mu if random == 1 else mu
+        else:
+            return np.dot(np.linalg.cholesky(sigma+1e-6*np.eye(len(sigma))),rs.randn(len(sigma)))+mu if random == 1 else mu
 
     def sample_mean_cov_from_layer(layer_params, xstar, with_noise = True, FITC = False):
         gp_params = unpack_layer_params(layer_params)
@@ -150,7 +157,7 @@ def build_single_layer(input_dimension, output_dimension, num_pseudo_params, cov
 
     def sample_values_from_layer(layer_params, xstar, with_noise = True, rs = npr.RandomState(0), FITC = False): 
         samples = sample_mean_cov_from_layer(layer_params, xstar, with_noise, FITC)
-        outputs = [sample_from_mvn(mean,cov,rs) for mean,cov in samples]
+        outputs = [sample_from_mvn(mean,cov,rs,FITC) for mean,cov in samples]
         return np.array(outputs).T
 
     return total_params_layer, sample_mean_cov_from_layer, sample_values_from_layer, predict_layer_funcs, create_layer_map
@@ -197,7 +204,11 @@ def build_deep_gp(dimensions, covariance_function, num_pseudo_params, random):
         for layer,layer_map in deep_map.iteritems():
             for unit,gp_map in layer_map.iteritems():
                 cov_y_y = covariance_function(gp_map['cov_params'],gp_map['x0'],gp_map['x0']) + gp_map['noise_scale'] * np.eye(len(gp_map['y0']))
-                log_prior += mvn.logpdf(gp_map['y0'],np.ones(len(cov_y_y))*gp_map['mean'],cov_y_y + np.diag(np.diag(cov_y_y))*0) # CHANGE
+                #print("mean",len(cov_y_y)*gp_map['mean'])
+                #print("y0",gp_map['y0'])
+                #print("cov",cov_y_y + 1e-6*np.eye(len(cov_y_y)))
+                log_prior += mvn.logpdf(gp_map['y0'],np.ones(len(cov_y_y))*gp_map['mean'],cov_y_y + 1e-6*np.eye(len(cov_y_y))) # CHANGE
+                #print("log prior", log_prior)                
                 ##log_prior += mvn.logpdf(gp_map['y0'],np.ones(len(cov_y_y))*gp_map['mean'],cov_y_y + np.eye(len(cov_y_y))*tuning_param)
                 ###log_prior += mvn.logpdf(gp_map['y0'],np.ones(len(cov_y_y))*gp_map['mean'],np.diag(np.diag(cov_y_y))*10)
         return log_prior
@@ -222,7 +233,7 @@ if __name__ == '__main__':
     random = 1
     n_samples = 10
     n_samples_to_plot = 10
-    dimensions = [1,1,1] # Architecture of the GP. Last layer should always be 1
+    dimensions = [1,1,1,1] # Architecture of the GP. Last layer should always be 1
 
     n_data = 20
     input_dimension = dimensions[0]

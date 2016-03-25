@@ -42,9 +42,8 @@ if __name__ == '__main__':
         # Show samples from posterior.
         sampled_funcs = rs.multivariate_normal(pred_mean, pred_cov*(random), size=n_samples_to_plot)
         ax.plot(plot_xs, sampled_funcs.T)
-        ax.plot(plot_xs,pred_mean,'r--')
+        ax.plot(plot_xs, pred_mean,'r--')
         ax.plot(x0, y0, 'ro')
-        ax.set_xlim([-5,5])
         ax.set_xticks([])
         ax.set_yticks([])
 
@@ -57,11 +56,12 @@ if __name__ == '__main__':
         avg_pred_mean = np.mean(sampled_means, axis = 0)
         avg_pred_cov = np.mean(sampled_covs, axis = 0)
 
+
         sampled_means_and_covs_2 = [sample_mean_cov_from_deep_gp(params, plot_xs, rs = rs, with_noise = False, FITC = False) for i in xrange(n_samples_to_plot)]
         sampled_funcs = np.array([rs.multivariate_normal(mean, cov*(random)) for mean,cov in sampled_means_and_covs_2])
         ax.plot(plot_xs,sampled_funcs.T)
-        ax.plot(X, y, 'kx')
         ax.plot(plot_xs,avg_pred_mean,'r--')
+        ax.plot(X, y, 'kx')
         #ax.set_ylim([-1.5,1.5])
         ax.set_xticks([])
         ax.set_yticks([])
@@ -71,56 +71,43 @@ if __name__ == '__main__':
         print("Log likelihood {}, Squared Error {}".format(-objective(params),squared_error(params,X,y,n_samples)))
     
     rs = npr.RandomState(0)
-    npr.seed(0)
     
-    fig = plt.figure(figsize=(20,16), facecolor='white')
-    ax_random_full = fig.add_subplot(321, frameon=False)
-    ax_random_one = fig.add_subplot(323, frameon=False)
-    ax_random_two = fig.add_subplot(325, frameon=False)
-    ax_smart_full = fig.add_subplot(322, frameon=False)
-    ax_smart_one = fig.add_subplot(324, frameon=False)
-    ax_smart_two = fig.add_subplot(326, frameon=False)
+    fig = plt.figure(figsize=(12,8), facecolor='white')
+    ax_full = fig.add_subplot(311, frameon=False)
+    ax_one = fig.add_subplot(312, frameon=False)
+    ax_two = fig.add_subplot(313, frameon=False)
     plt.show(block=False) 
 
-    for initialization in initialization_set:
+    npr.seed(0)
+    rs = npr.RandomState(0)
 
-        init_params = .1 * npr.randn(total_num_params)
-        deep_map = create_deep_map(init_params)
-        if initialization:
-            init_params = initialize(deep_map, X, num_pseudo_params)
+    init_params = .1 * npr.randn(total_num_params)
+    deep_map = create_deep_map(init_params)
+    init_params = initialize(deep_map, X, num_pseudo_params)
 
-        print("Optimizing covariance parameters...")
-        objective = lambda params: -log_likelihood(params,X,y,n_samples)
+    print("Optimizing covariance parameters...")
+    objective = lambda params: -log_likelihood(params,X,y,n_samples)
 
-        params = minimize(value_and_grad(objective), init_params, jac=True,
-                              method='BFGS', callback=callback,options={'maxiter':1000})
-        
-        params = params['x']
-        plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
-        if initialization:
-            ax_full = ax_smart_full
-            ax_one = ax_smart_one
-            ax_two = ax_smart_two
-            title = "Two Layers, Smart Initialization"
-        else:
-            ax_full = ax_random_full
-            ax_one = ax_random_one
-            ax_two = ax_random_two  
-            title = "Two Layers, Random Initialization"
-        
-        plot_deep_gp(ax_full, params, plot_xs)
-        plot_single_gp(ax_one,params,0,0,plot_xs)
-        plot_single_gp(ax_two,params,1,0,plot_xs)
-        ax_full.set_title(title, fontsize = 20)
-        ax_full.set_xlabel(r'$x$',fontsize = 20)
-        ax_full.set_ylabel(r'$g(f(x))$',fontsize = 20)
-        ax_one.set_title("Input to Hiddens", fontsize = 20)
-        ax_one.set_xlabel(r'$x$',fontsize = 20)
-        ax_one.set_ylabel(r'$f(x)$',fontsize = 20)
-        ax_two.set_title("Hiddens to Outputs", fontsize = 20)
-        ax_two.set_xlabel(r'$f(x)$',fontsize = 20)
-        ax_two.set_ylabel(r'$g(f(x))$',fontsize = 20)
+    params = minimize(value_and_grad(objective), init_params, jac=True,
+                          method='BFGS', callback=callback,options={'maxiter':1000})
     
-    plt.savefig('step_initialization.png', format='png', bbox_inches='tight',dpi=200)
+    params = params['x']
+    print(create_deep_map(init_params))
+    plot_xs = np.reshape(np.linspace(-5, 5, 300), (300,1))
+    
+    plot_deep_gp(ax_full, params, plot_xs)
+    plot_single_gp(ax_one,params,0,0,plot_xs)
+    plot_single_gp(ax_two,params,1,0,plot_xs)
+    ax_full.set_title("Prective Mean of 2 Layer Deep GP", fontsize = 18)
+    ax_full.set_xlabel(r'$x$')
+    ax_full.set_ylabel(r'$g(f(x))$')
+    ax_one.set_title("Input to Hiddens")
+    ax_one.set_xlabel(r'$x$')
+    ax_one.set_ylabel(r'$f(x)$')
+    ax_two.set_title("Hiddens to Outputs")
+    ax_two.set_xlabel(r'$f(x)$')
+    ax_two.set_ylabel(r'$g(f(x))$')
+    
+    plt.savefig('two_layer_step_pred_mean.pdf', format='pdf', bbox_inches='tight',dpi=200)
 
     plt.pause(80.0)

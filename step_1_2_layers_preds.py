@@ -14,7 +14,7 @@ if __name__ == '__main__':
     n_samples = 10 
     n_samples_to_plot = 10 
     
-    n_data = 20 
+    n_data = 60 
     input_dimension = 1
     num_pseudo_params = 10 
     X, y = build_step_function_dataset(D=input_dimension, n_data=n_data)
@@ -37,7 +37,7 @@ if __name__ == '__main__':
         def callback(params):
             print("Log likelihood {}, Squared Error {}".format(-objective(params),squared_error(params,X,y,n_samples)))
 
-        rs = npr.RandomState(0)
+        rs = npr.RandomState(1)
         init_params = .1 * rs.randn(total_num_params)
         deep_map = create_deep_map(init_params)
         init_params = initialize(deep_map, X, num_pseudo_params)

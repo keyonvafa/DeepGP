@@ -30,6 +30,7 @@ def make_gp_funs(cov_func, num_cov_params):
        cov_func has signature (cov_params, x, x')"""
 
     def unpack_kernel_params(params):
+        print("params",params)
         mean        = params[0]
         cov_params  = params[2:]
         noise_scale = np.exp(params[1]) + 0.001
@@ -38,6 +39,7 @@ def make_gp_funs(cov_func, num_cov_params):
     def predict(params, x, y, xstar):
         """Returns the predictive mean and covariance at locations xstar,
            of the latent function value f (without observation noise)."""
+        #print('params',params)
         mean, cov_params, noise_scale = unpack_kernel_params(params)
         cov_f_f = cov_func(cov_params, xstar, xstar)
         cov_y_f = cov_func(cov_params, x, xstar)
@@ -50,7 +52,7 @@ def make_gp_funs(cov_func, num_cov_params):
         mean, cov_params, noise_scale = unpack_kernel_params(params)
         cov_y_y = cov_func(cov_params, x, x) + noise_scale * np.eye(len(y))
         prior_mean = mean * np.ones(len(y))
-        return mvn.logpdf(y, prior_mean, cov_y_y)
+        return mvn.logpdf(y, prior_mean, cov_y_y+1e-6*np.eye(len(cov_y_y)))
 
     return num_cov_params + 2, predict, log_marginal_likelihood
 
@@ -82,8 +84,9 @@ if __name__ == '__main__':
         make_gp_funs(rbf_covariance, num_cov_params=D + 1)
 
     #X, y = build_toy_dataset(D=D)
-    #X, y = build_step_function_dataset()
-    X,y = build_sigmoid_dataset()
+    X, y = build_step_function_dataset()
+    #X,y = build_sigmoid_dataset()
+
     objective = lambda params: -log_marginal_likelihood(params, X, y)
 
     # Set up figure.

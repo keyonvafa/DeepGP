@@ -25,19 +25,21 @@ def test_squared_error(all_params, X, y, n_samples):
     return np.mean((y - np.mean(samples,axis = 0)) ** 2)
 
 def callback(params):
-    print("Num Layers {}, Log likelihood {}, MSE {}".format(n_layers,-objective(params),squared_error(params,X,y,n_samples)))
+    print("Num Samples {}, Log likelihood {}, MSE {}".format(n_samples,-objective(params),squared_error(params,X,y,n_samples)))
 
 
 if __name__ == '__main__':
     random = 1 
     
-    n_samples = 10 
-    n_samples_to_test = 100
-    num_pseudo_params = 10#50 
+    n_samples_set = [50]#[10,20,30] 
+    n_samples_to_test = 150
+    num_pseudo_param_set = [10,50,100]
+    
     n_trials = 2
 
-    dimension_set = [[1,1],[1,1,1],[1,1,1,1]]#[[1,1],[1,1,1],[1,1,1,1]]
-    n_data_set = [75,150,300]
+    dimensions = [1,1,1]
+    n_layers = len(dimensions)-1 
+    n_data = 125
 
     npr.seed(0)
     rs = npr.RandomState(0)
@@ -45,13 +47,11 @@ if __name__ == '__main__':
     results = []
 
     for i in xrange(n_trials):
-        
         print("Trial {}".format(i))
-        for n_data in n_data_set:
-            X, y = build_step_function_dataset(D=1, n_data=n_data)
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-            for dimensions in dimension_set:
-                n_layers = len(dimensions)-1 
+        X, y = build_step_function_dataset(D=1, n_data=n_data)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        for n_samples in n_samples_set:
+            for num_pseudo_params in num_pseudo_param_set:
                 start_time = time.time()
 
                 total_num_params, log_likelihood, sample_mean_cov_from_deep_gp, predict_layer_funcs, squared_error, create_deep_map = \
@@ -70,10 +70,10 @@ if __name__ == '__main__':
                 test_log_lik_prior = log_likelihood(params['x'],X_test,y_test,n_samples_to_test)
                 test_log_lik = test_log_likelihood(params['x'],X_test,y_test,n_samples_to_test)
                 test_error = squared_error(params['x'],X_test,y_test,n_samples_to_test)
-                results.append({'Layers': n_layers, 'NumData': n_data, 'Trial': i, 'Loglikprior': test_log_lik_prior, 'Loglik': test_log_lik, 'MSE': test_error, 'Duration': duration})
+                results.append({'Samples': n_samples, 'PseudoParams': num_pseudo_params, 'Trial': i, 'Loglikprior': test_log_lik_prior, 'Loglik': test_log_lik, 'MSE': test_error, 'Duration': duration})
                 print("Test Log Likelihood {}, Test Log Likelihood with Prior {}, Test MSE {}, Duration {} seconds".format(\
                     test_log_lik,test_log_lik_prior,test_error,duration))
 
 df = pd.DataFrame(results)
 print(df)
-df.to_csv('step_layers_loglik2.csv')
+df.to_csv('step_samples_loglik.csv')
